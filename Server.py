@@ -23,11 +23,22 @@ if paramMap['usage']:
     params.usage()
 
 
-class Framer_Inband:
-        
-    def __init__(self, fd):
-        
+class Framer_Outband:
+
+    def __init__(self,fd):
+
         self.fd = fd
+        
+    def Begin(self, size, byteWriter):
+        
+        
+        length = "00000000"
+        
+        size = "{:08d}".format(int(length) + size)
+        
+        for b in size:
+            byteWriter.writeByte(ord(b))
+        
         
     def Write(self, by, byteWriter, name):
         
@@ -39,27 +50,12 @@ class Framer_Inband:
             
         else:
             while (b := by.readByte()) is not None:
-                if b == ord('/'):
 
-                    next_byte = by.readByte()
-                    if next_byte == ord('e'):
-                        byteWriter.writeByte(ord('/'))
-                        byteWriter.writeByte(ord('/'))
-                    else:
-                        byteWriter.writeByte(b)
-                        byteWriter.writeByte(next_byte)
-                else:
-
-                   byteWriter.writeByte(b)
-    
-    def End(self, byteWriter):
+                byteWriter.writeByte(b)
         
-        byteWriter.writeByte(ord('/'))
-        byteWriter.writeByte(ord('e'))
-                
-    def Close(self, files):
+    def Close(self, byteWriter):
         
-        files.flush()
+        byteWriter.flush()
         
 class BufferedFdReader:
     def __init__(self, fd, bufLen = 1024*16):
@@ -110,33 +106,39 @@ def chatWithClient(connAddr):
     sock, addr = connAddr
     print(f'Child: pid={os.getpid()} connected to client at {addr}')
     
-    files = ["foo.txt", "goo.gif"]
+    
+    files = ["foo.txt","goo.gif"]
         
     byteWriter = BufferedFdWriter(sock)
     
     for filename in files:
         try:
             print(filename)
-            
-            fd = os.open(filename, os.O_RDONLY)
-    
-            framer = Framer_Inband(fd)
-             
+            fd = os.open(filename, 0)
+                
+            framer = Framer_Outband(fd)
+                    
             ifile = BufferedFdReader(fd)
-             
-            framer.Write(filename, byteWriter, True)
-             
-            framer.End(byteWriter)
-             
-            framer.Write(ifile, byteWriter, False)
-             
-            framer.End(byteWriter)
-                                             
+                
+            framer.Begin(len(filename), byteWriter)
+            
+            framer.Write(filename,byteWriter, True)
+            
+            file_stats = os.stat(fd)
+            
+            size = file_stats.st_size
+        
+            framer.Begin(size,byteWriter)
+                        
+            framer.Write(ifile,byteWriter, False)
+                                    
         except FileNotFoundError:
-            print(f"File '{filename}' not found.")
- 
+            print(f"File '{filename}' not found.")            
+    
     framer.Close(byteWriter)
+    
     sock.shutdown(socket.SHUT_WR)
+    print("Socket shut down")
     
     sys.exit(0)                 # terminate child
 

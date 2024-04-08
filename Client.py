@@ -7,7 +7,7 @@ import params
 
 switchesVarDefaults = (
     (('-s', '--server'), 'server', "127.0.0.1:50001"),
-    (('-d', '--delay'), 'delay', "0"),
+    (('-d', '--delay'), 'delay', "1"),
     (('-?', '--usage'), "usage", False), # boolean (set if present)
     )
 
@@ -51,33 +51,22 @@ if s is None:
     sys.exit(1)
 
 
-class Deframer_Inband():
+class Deframer_Outband:
     
-    def __init__(self,fd):
+    def __init__(self, fd):
         
         self.fd = fd
         
-    def readBytes(self, byteReader):
-        
-        temp = None
+    def readBytes(self, size, byteReader):
         
         bytesRead = bytearray()
         
-        while(by := byteReader.readByte()) is not None:
-            
-            if (temp == ord('/')) and (by == ord('/')):
-                
-                bytesRead.append(ord('/'))
-               
-            elif (temp == ord('/')) and (by == ord('e')):
-                break
-            
-            else:
-                if(temp != None):
-                    bytesRead.append(temp)
-                
-            temp = by
-            
+        s = int(size)
+
+        for si in range(s):
+
+            bytesRead.append(byteReader.readByte())
+        
         return bytesRead
 
 
@@ -132,33 +121,48 @@ if delay != 0:
 
 while 1:
     data = s.recv(2048)
-    
-    if len(data) == 1:
+    print("Received '%s'" % data)
+    if len(data) == 0:
         break
         
     r_fd, w_fd = os.pipe()
         
     os.write(w_fd, data)
 
-    deframer = Deframer_Inband(r_fd)
+    deframer = Deframer_Outband(r_fd)
         
     byteReader = BufferedFdReader(r_fd)
         
-    while True:
-        name_bytes = deframer.readBytes(byteReader)
-        print(name_bytes)
-        if name_bytes == None:
+    index = 0
+    
+    while index < 2:
+        size = ""
+        
+        for i in range(8):
+            number = byteReader.readByte()
+            if number == None:
+                break
+            size += chr(number)
+        if size == "":
             break
-            
+        
+        name_bytes = deframer.readBytes(size, byteReader)
+
         filename = name_bytes.decode()
                 
-        ofile = os.open("new_" + filename, os.O_WRONLY | os.O_CREAT)
-            
+        ofile = os.open("new_"+filename, os.O_WRONLY | os.O_CREAT)
+        
         byteWriter = BufferedFdWriter(ofile)
-            
-        content_bytes = deframer.readBytes(byteReader)
-            
+        
+        size = ""
+        
+        for i in range(8):
+            size += chr(byteReader.readByte())
+        content_bytes = deframer.readBytes(size,byteReader)
+        
         os.write(ofile, content_bytes)     
+        
+        index += 1
     
 print("Zero length read.  Closing")
 s.close()
